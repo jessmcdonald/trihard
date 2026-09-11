@@ -18,6 +18,8 @@ import {
   WORKOUT_TYPES,
   STRENGTH_SESSIONS,
 } from './constants'
+import { swimZonePace } from './swim-css'
+import { bikeZoneKmh, runZoneSecPerKm } from './endurance-fitness'
 
 // ── Input types ──
 
@@ -27,6 +29,78 @@ export interface GoalInput {
   swimDistanceM: number
   bikeDistanceM: number
   runDistanceM: number
+  targetSwimSec?: number | null
+  targetBikeSec?: number | null
+  targetRunSec?: number | null
+}
+
+/** Current longest session + easy pace per endurance discipline. */
+export interface DisciplineFitness {
+  longestM: number
+  /** Swim: sec/100m · Bike: km/h · Run: sec/km */
+  easyPace: number
+  skill: ExperienceLevel
+  /** Swim only: critical swim speed, sec/100m */
+  cssPace?: number
+  /** Past race used as the current distance/pace anchor */
+  raceDistanceM?: number
+  raceTimeSec?: number
+  /** Bike: elevation gain of that race, metres */
+  elevationGainM?: number
+  /** Bike: flat-equivalent race speed km/h */
+  raceFlatKmh?: number
+  /** Run: threshold pace sec/km from a short race */
+  thresholdPace?: number
+  /** Run: all entered races */
+  races?: { distanceM: number; timeSec: number }[]
+}
+
+const SKILL_LONGEST_PCT: Record<ExperienceLevel, number> = {
+  beginner: 0.30,
+  intermediate: 0.45,
+  advanced: 0.60,
+}
+
+const DEFAULT_EASY_PACE: Record<'swim' | 'bike' | 'run', Record<ExperienceLevel, number>> = {
+  swim: { beginner: 130, intermediate: 115, advanced: 100 },
+  bike: { beginner: 24, intermediate: 27, advanced: 30 },
+  run: { beginner: 390, intermediate: 345, advanced: 315 },
+}
+
+const SKILL_VOLUME_FLOOR: Record<ExperienceLevel, number> = {
+  beginner: 0.45,
+  intermediate: 0.62,
+  advanced: 0.82,
+}
+
+export function defaultDisciplineFitness(
+  discipline: 'swim' | 'bike' | 'run',
+  raceDistM: number,
+  skill: ExperienceLevel,
+  raceTimeSec?: number | null,
+): DisciplineFitness {
+  const longestM = Math.max(1, Math.round(raceDistM * SKILL_LONGEST_PCT[skill]))
+  let easyPace = DEFAULT_EASY_PACE[discipline][skill]
+  if (raceTimeSec && raceTimeSec > 0 && raceDistM > 0) {
+    if (discipline === 'swim') easyPace = (raceTimeSec / raceDistM) * 100 * 1.08
+    else if (discipline === 'bike') easyPace = (raceDistM / 1000) / (raceTimeSec / 3600) * 0.88
+    else easyPace = (raceTimeSec / (raceDistM / 1000)) * 1.12
+  }
+  return { longestM, easyPace, skill }
+}
+
+function blendSkills(fitness: CurrentFitness): ExperienceLevel {
+  const score = { beginner: 0, intermediate: 1, advanced: 2 }
+  const avg = (score[fitness.swim.skill] + score[fitness.bike.skill] + score[fitness.run.skill]) / 3
+  if (avg < 0.75) return 'beginner'
+  if (avg < 1.5) return 'intermediate'
+  return 'advanced'
+}
+
+export interface CurrentFitness {
+  swim: DisciplineFitness
+  bike: DisciplineFitness
+  run: DisciplineFitness
 }
 
 export interface TemplateSlot {
@@ -46,6 +120,8 @@ export interface GeneratorConfig {
   customPhases?: { base: number; build: number; peak: number; taper: number }
   /** Recovery week volume as fraction of normal (0-1). Default 0.60. E.g. 0.75 = 25% cut. */
   recoveryMultiplier?: number
+  /** Per-discipline starting point. Plan ramps from here toward race-ready volume/distance. */
+  currentFitness?: CurrentFitness
 }
 
 // ── Output types ──
@@ -93,6 +169,60 @@ function addDays(date: Date, n: number): Date {
 
 function isoDate(d: Date): string {
   return d.toISOString().split('T')[0]
+}
+
+function lerp(from: number, to: number, t: number): number {
+  const clamped = Math.min(1, Math.max(0, t))
+  return from + (to - from) * clamped
+}
+
+/** 0 at week 1, 1 once peak phase starts. */
+function loadProgress(weekNum: number, peakStartWeek: number): number {
+  if (weekNum >= peakStartWeek) return 1
+  return (weekNum - 1) / Math.max(1, peakStartWeek - 1)
+}
+
+function interpolatedEasyPace(
+  discipline: 'swim' | 'bike' | 'run',
+  current: number,
+  raceDistM: number,
+  raceTimeSec: number | null | undefined,
+  t: number,
+): number {
+  if (!raceTimeSec || raceTimeSec <= 0 || raceDistM <= 0) {
+    return current
+  }
+
+  let targetEasy = current
+  if (discipline === 'swim') {
+    const racePer100 = (raceTimeSec / raceDistM) * 100
+    targetEasy = racePer100 * 1.08
+    if (current < targetEasy) targetEasy = current
+  } else if (discipline === 'bike') {
+    const raceKmh = (raceDistM / 1000) / (raceTimeSec / 3600)
+    targetEasy = raceKmh * 0.88
+    if (current > targetEasy) targetEasy = current
+  } else {
+    const racePerKm = raceTimeSec / (raceDistM / 1000)
+    targetEasy = racePerKm * 1.12
+    if (current < targetEasy) targetEasy = current
+  }
+
+  return lerp(current, targetEasy, t)
+}
+
+/** Current CSS, with a modest improvement toward race-goal CSS over the plan. */
+function swimCssNow(
+  fitness: DisciplineFitness,
+  progress: number,
+  goalSwimDistM: number,
+  goalSwimSec?: number | null,
+): number {
+  const css = fitness.cssPace ?? Math.max(70, fitness.easyPace - 10)
+  if (!goalSwimSec || goalSwimSec <= 0 || goalSwimDistM <= 0) return css
+  const goalCss = (goalSwimSec / goalSwimDistM) * 100
+  if (goalCss >= css) return css
+  return lerp(css, goalCss, progress * 0.4)
 }
 
 export function weeksBetween(a: Date, b: Date): number {
@@ -240,8 +370,11 @@ export function generatePlan(
   }
 
   const phases = config.customPhases ?? allocatePhases(totalWeeks)
+  const peakStartWeek = phases.base + phases.build + 1
+  const fitness = config.currentFitness
   const distKey = goal.distanceType === 'custom' ? 'olympic' : goal.distanceType
-  const hoursRange = WEEKLY_HOURS[distKey][config.experienceLevel]
+  const experienceLevel = fitness ? blendSkills(fitness) : config.experienceLevel
+  const hoursRange = WEEKLY_HOURS[distKey][experienceLevel]
   const avgWeeklyHours = (hoursRange.min + hoursRange.max) / 2
   const avgWeeklyMin = avgWeeklyHours * 60
 
@@ -268,6 +401,7 @@ export function generatePlan(
       ? config.customRecoveryWeeks.has(weekIdx + 1) // 1-indexed
       : isRecoveryWeek(phaseWeekIdx, phase)
     const weekMinutes = weekVolume(weekIdx + 1, phase, phaseWeekIdx, avgWeeklyMin, recovery, recoveryMult, totalWeeks)
+    const progress = phase === 'taper' ? 0.45 : loadProgress(weekIdx + 1, peakStartWeek)
 
     // Count workouts per discipline this week from template
     const weekSlots: TemplateSlot[] = []
@@ -286,6 +420,17 @@ export function generatePlan(
       bike: weekMinutes * DISCIPLINE_SPLIT.bike,
       run: weekMinutes * DISCIPLINE_SPLIT.run,
       strength: STRENGTH_SESSIONS[phase].durationMin * STRENGTH_SESSIONS[phase].perWeek,
+    }
+
+    // Weak bike/run: start below target weekly volume and ramp toward it.
+    // Swim time-in-water is not cut — distance/pace absorb the gap.
+    if (fitness) {
+      for (const disc of ['bike', 'run'] as const) {
+        const peakLong = (disc === 'bike' ? goal.bikeDistanceM : goal.runDistanceM) * 0.85
+        const fromLongest = fitness[disc].longestM / Math.max(peakLong, 1)
+        const readiness = Math.min(1, Math.max(SKILL_VOLUME_FLOOR[fitness[disc].skill], fromLongest, 0.4))
+        disciplineMinutes[disc] *= lerp(readiness, 1, progress)
+      }
     }
 
     // ── Weighted time allocation per workout type ──
@@ -357,20 +502,50 @@ export function generatePlan(
         // For key long workouts, scale distance toward race distance by phase
         const isLongWorkout = slot.workoutType === 'long' || slot.workoutType === 'endurance' || slot.workoutType === 'open_water'
         let distanceM: number | null = null
+        const discKey = slot.discipline as 'swim' | 'bike' | 'run'
+        const raceDist = slot.discipline === 'strength' ? 0 : (raceDistances[discKey] ?? 0)
+        const discFitness = fitness && slot.discipline !== 'strength' ? fitness[discKey] : undefined
+        let easyPace: number | null = null
+        if (discFitness && slot.discipline === 'swim') {
+          const cssNow = swimCssNow(discFitness, progress, raceDist, goal.targetSwimSec)
+          easyPace = swimZonePace(cssNow, recovery ? 1 : zone)
+        } else if (discFitness && slot.discipline === 'bike' && discFitness.raceFlatKmh) {
+          easyPace = bikeZoneKmh(discFitness.raceFlatKmh, recovery ? 1 : zone)
+        } else if (discFitness && slot.discipline === 'run' && discFitness.thresholdPace) {
+          easyPace = runZoneSecPerKm(discFitness.easyPace, discFitness.thresholdPace, recovery ? 1 : zone)
+        } else if (discFitness) {
+          easyPace = interpolatedEasyPace(
+            discKey,
+            discFitness.easyPace,
+            raceDist,
+            discKey === 'bike' ? goal.targetBikeSec : goal.targetRunSec,
+            progress,
+          )
+        }
 
         if (isLongWorkout && !recovery && slot.discipline !== 'strength') {
-          const raceDist = raceDistances[slot.discipline as 'swim' | 'bike' | 'run'] ?? 0
-          const targetDist = Math.round(raceDist * phaseDistancePct[phase])
+          const peakLong = raceDist * phaseDistancePct.peak
+          const startLong = discFitness
+            ? Math.min(discFitness.raceDistanceM ?? discFitness.longestM, peakLong)
+            : raceDist * phaseDistancePct.base
+          const targetDist = Math.round(
+            lerp(startLong, peakLong, phase === 'taper' ? phaseDistancePct.taper : progress),
+          )
 
-          // Derive duration from target distance at easy pace
           if (slot.discipline === 'swim') {
-            durationMin = Math.round((targetDist / 100) * 2) // ~2min/100m
+            const paceSecPer100 = easyPace ?? 120
+            const fromTime = (durationMin * 60 / paceSecPer100) * 100
+            distanceM = Math.round(Math.min(fromTime, targetDist))
+            durationMin = Math.max(15, Math.round((distanceM / 100) * (paceSecPer100 / 60)))
           } else if (slot.discipline === 'bike') {
-            durationMin = Math.round((targetDist / 1000) / 28 * 60) // ~28km/h
+            const kmh = easyPace ?? 28
+            durationMin = Math.round((targetDist / 1000) / kmh * 60)
+            distanceM = targetDist
           } else if (slot.discipline === 'run') {
-            durationMin = Math.round((targetDist / 1000) * 5.5) // ~5:30/km
+            const secPerKm = easyPace ?? 330
+            durationMin = Math.round((targetDist / 1000) * (secPerKm / 60))
+            distanceM = targetDist
           }
-          distanceM = targetDist
         }
 
         // Clamp durations
@@ -379,13 +554,13 @@ export function generatePlan(
         // Estimate distance for non-long workouts
         if (distanceM === null) {
           if (slot.discipline === 'swim') {
-            const paceSec = zone >= 3 ? 100 : zone === 2 ? 110 : 120
+            const paceSec = easyPace ?? (zone >= 3 ? 100 : zone === 2 ? 110 : 120)
             distanceM = Math.round((durationMin * 60 / paceSec) * 100)
           } else if (slot.discipline === 'bike') {
-            const speedKmh = zone >= 3 ? 32 : zone === 2 ? 30 : 28
+            const speedKmh = easyPace ?? (zone >= 3 ? 32 : zone === 2 ? 30 : 28)
             distanceM = Math.round((speedKmh * 1000 * durationMin) / 60)
           } else if (slot.discipline === 'run') {
-            const paceSecPerKm = zone >= 3 ? 255 : zone === 2 ? 285 : 330
+            const paceSecPerKm = easyPace ?? (zone >= 3 ? 255 : zone === 2 ? 285 : 330)
             distanceM = Math.round((durationMin * 60 / paceSecPerKm) * 1000)
           }
         }

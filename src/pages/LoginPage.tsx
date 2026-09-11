@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 
@@ -13,11 +13,11 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  // Auto-redirect if already logged in
-  if (!loading && user) {
-    navigate('/dashboard', { replace: true })
-    return null
-  }
+  useEffect(() => {
+    if (!loading && user) {
+      navigate('/dashboard', { replace: true })
+    }
+  }, [loading, user, navigate])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()

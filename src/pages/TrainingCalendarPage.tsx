@@ -9,6 +9,8 @@ import type { Discipline, ExperienceLevel, RaceGoal, TrainingPhase } from '@/lib
 import WorkoutChip from '@/components/WorkoutChip'
 import WorkoutEditModal from '@/components/WorkoutEditModal'
 import WeeklyVolumeChart from '@/components/WeeklyVolumeChart'
+import FitnessConfigStep, { buildFitnessForm, parseFitnessForm } from '@/components/FitnessConfigStep'
+import type { FitnessForm } from '@/components/FitnessConfigStep'
 
 const PHASE_COLORS: Record<TrainingPhase, string> = {
   base: 'bg-blue-900/40 border-blue-800 text-blue-300',
@@ -42,10 +44,11 @@ export default function TrainingCalendarPage() {
   const [editingWorkout, setEditingWorkout] = useState<{ weekIdx: number; workoutIdx: number } | null>(null)
 
   // Configuration step state
-  const [configStep, setConfigStep] = useState<'configure' | 'calendar'>('configure')
+  const [configStep, setConfigStep] = useState<'configure' | 'fitness' | 'calendar'>('configure')
   const [recoveryWeeks, setRecoveryWeeks] = useState<Set<number>>(new Set())
   const [customPhases, setCustomPhases] = useState<{ base: number; build: number; peak: number; taper: number } | null>(null)
   const [deloadCut, setDeloadCut] = useState(30) // % volume reduction in recovery weeks
+  const [fitnessForm, setFitnessForm] = useState<FitnessForm | null>(null)
 
   // Load goal + template + check for existing saved plan
   useEffect(() => {
@@ -160,8 +163,26 @@ export default function TrainingCalendarPage() {
   const [planSummary, setPlanSummary] = useState<ReturnType<typeof generatePlan>['summary'] | null>(null)
   const [allWorkouts, setAllWorkouts] = useState<PlannedWorkoutRow[]>([])
 
+  function goToFitness() {
+    if (!goal) return
+    const skill = (profile?.experience_level ?? 'intermediate') as ExperienceLevel
+    const stale = !fitnessForm
+      || !('cssPace' in fitnessForm.swim)
+      || !('raceDistanceKm' in fitnessForm.bike)
+      || !('races' in fitnessForm.run)
+    if (stale) setFitnessForm(buildFitnessForm(goal, skill))
+    setError('')
+    setConfigStep('fitness')
+  }
+
   function handleGenerate() {
-    if (!goal || templateSlots.length === 0 || !planMeta) return
+    if (!goal || templateSlots.length === 0 || !planMeta || !fitnessForm) return
+
+    const parsed = parseFitnessForm(fitnessForm, goal)
+    if (typeof parsed === 'string') {
+      setError(parsed)
+      return
+    }
 
     try {
       const goalInput: GoalInput = {
@@ -170,6 +191,9 @@ export default function TrainingCalendarPage() {
         swimDistanceM: goal.swim_distance_m,
         bikeDistanceM: goal.bike_distance_m,
         runDistanceM: goal.run_distance_m,
+        targetSwimSec: goal.target_swim_time,
+        targetBikeSec: goal.target_bike_time,
+        targetRunSec: goal.target_run_time,
       }
 
       const result = generatePlan(goalInput, templateSlots, {
@@ -178,6 +202,7 @@ export default function TrainingCalendarPage() {
         customRecoveryWeeks: recoveryWeeks.size > 0 ? recoveryWeeks : undefined,
         customPhases: customPhases ?? undefined,
         recoveryMultiplier: (100 - deloadCut) / 100,
+        currentFitness: parsed,
       })
 
       setPlanSummary(result.summary)
@@ -352,6 +377,7 @@ export default function TrainingCalendarPage() {
 
         <main className="max-w-3xl mx-auto px-6 py-10 space-y-8">
           <div>
+            <p className="text-xs uppercase tracking-wide text-indigo-400 mb-1">Step 1 of 2</p>
             <h2 className="text-2xl font-bold mb-1">Configure Your Plan</h2>
             <p className="text-sm text-gray-400">
               {totalWeeks} weeks starting {startDateStr}
@@ -493,14 +519,35 @@ export default function TrainingCalendarPage() {
           {error && <p className="text-red-400 text-sm">{error}</p>}
 
           <button
-            onClick={handleGenerate}
+            onClick={goToFitness}
             disabled={phaseMismatch}
             className="w-full rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-3 text-white font-medium transition-colors text-lg"
           >
-            {phaseMismatch ? `Phases must total ${totalWeeks} weeks` : 'Generate Plan'}
+            {phaseMismatch ? `Phases must total ${totalWeeks} weeks` : 'Next: Current fitness'}
           </button>
         </main>
       </div>
+    )
+  }
+
+  // ── Fitness assessment step ──
+  if (configStep === 'fitness') {
+    if (!goal || !fitnessForm) {
+      return (
+        <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
+        </div>
+      )
+    }
+    return (
+      <FitnessConfigStep
+        goal={goal}
+        form={fitnessForm}
+        onChange={setFitnessForm}
+        onBack={() => { setError(''); setConfigStep('configure') }}
+        onGenerate={handleGenerate}
+        error={error}
+      />
     )
   }
 

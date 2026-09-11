@@ -96,14 +96,14 @@ export function paceToTime(
 }
 
 /** Format seconds as M:SS */
-function formatPaceTime(totalSecs: number): string {
+export function formatPaceTime(totalSecs: number): string {
   const m = Math.floor(totalSecs / 60)
   const s = Math.round(totalSecs % 60)
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
 /** Parse "M:SS" → total seconds */
-function parsePaceTime(str: string): number | null {
+export function parsePaceTime(str: string): number | null {
   const parts = str.split(':').map(Number)
   if (parts.length !== 2 || parts.some(isNaN)) return null
   return parts[0] * 60 + parts[1]

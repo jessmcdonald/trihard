@@ -36,30 +36,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
+    let mounted = true
+
     supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!mounted) return
       setSession(session)
       setUser(session?.user ?? null)
       if (session?.user) {
         const p = await fetchProfile(session.user.id)
-        setProfile(p)
+        if (mounted) setProfile(p)
       }
-      setLoading(false)
+      if (mounted) setLoading(false)
     })
 
+    // Must not be async — supabase-js holds an auth lock until the callback
+    // promise settles, which deadlocks signIn/signUp (button stuck on Loading).
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
+      (_event, session) => {
         setSession(session)
         setUser(session?.user ?? null)
         if (session?.user) {
-          const p = await fetchProfile(session.user.id)
-          setProfile(p)
+          setTimeout(() => {
+            fetchProfile(session.user.id).then(p => {
+              if (mounted) setProfile(p)
+            })
+          }, 0)
         } else {
           setProfile(null)
         }
       }
     )
 
-    return () => subscription.unsubscribe()
+    return () => {
+      mounted = false
+      subscription.unsubscribe()
+    }
   }, [])
 
   async function signUp(email: string, password: string, displayName: string) {
