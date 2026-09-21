@@ -8,7 +8,7 @@ interface AuthState {
   profile: Profile | null
   session: Session | null
   loading: boolean
-  signUp: (email: string, password: string, displayName: string) => Promise<void>
+  signUp: (email: string, password: string, displayName: string, inviteCode: string) => Promise<void>
   signIn: (email: string, password: string) => Promise<void>
   signOut: () => Promise<void>
 }
@@ -73,13 +73,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
-  async function signUp(email: string, password: string, displayName: string) {
+  async function signUp(email: string, password: string, displayName: string, inviteCode: string) {
+    const trimmedCode = inviteCode.trim()
+    const { data: valid, error: checkError } = await supabase.rpc('is_valid_invite_code', {
+      invite: trimmedCode,
+    })
+    if (checkError) throw checkError
+    if (!valid) throw new Error('Invalid invite code')
+
     const { error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { display_name: displayName } },
+      options: { data: { display_name: displayName, invite_code: trimmedCode } },
     })
-    if (error) throw error
+    if (error) {
+      if (/invite/i.test(error.message)) throw new Error('Invalid invite code')
+      throw error
+    }
   }
 
   async function signIn(email: string, password: string) {

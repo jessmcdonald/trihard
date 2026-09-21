@@ -98,6 +98,14 @@ export type PlannedWorkout = {
   created_at: string
 }
 
+export type InviteCode = {
+  id: string
+  code: string
+  max_uses: number | null
+  use_count: number
+  created_at: string
+}
+
 export type CompletedWorkout = {
   id: string
   planned_workout_id: string | null
@@ -124,12 +132,16 @@ export type Database = {
       training_plans: { Row: TrainingPlan; Insert: Omit<TrainingPlan, 'id' | 'created_at' | 'updated_at'>; Update: Partial<TrainingPlan>; Relationships: [] }
       planned_workouts: { Row: PlannedWorkout; Insert: Omit<PlannedWorkout, 'id' | 'created_at'>; Update: Partial<PlannedWorkout>; Relationships: [] }
       completed_workouts: { Row: CompletedWorkout; Insert: Omit<CompletedWorkout, 'id' | 'created_at'>; Update: Partial<CompletedWorkout>; Relationships: [] }
+      invite_codes: { Row: InviteCode; Insert: Omit<InviteCode, 'id' | 'created_at' | 'use_count'> & { use_count?: number }; Update: Partial<InviteCode>; Relationships: [] }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      is_valid_invite_code: {
+        Args: { invite: string }
+        Returns: boolean
+      }
     }
     Enums: {
       experience_level: ExperienceLevel

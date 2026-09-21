@@ -10,6 +10,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [displayName, setDisplayName] = useState('')
+  const [inviteCode, setInviteCode] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -26,7 +27,7 @@ export default function LoginPage() {
 
     try {
       if (isSignUp) {
-        await signUp(email, password, displayName)
+        await signUp(email, password, displayName, inviteCode)
       } else {
         await signIn(email, password)
       }
@@ -42,9 +43,8 @@ export default function LoginPage() {
     <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-center px-4">
       <div className="mb-8 text-center">
         <h1 className="text-5xl font-bold text-white tracking-tight">
-          tri<span className="text-indigo-500">Hard</span>
+          tri<span className="text-indigo-500">Hardr</span>
         </h1>
-        <p className="mt-2 text-gray-400">Triathlon training planner</p>
       </div>
 
       <form
@@ -56,14 +56,25 @@ export default function LoginPage() {
         </h2>
 
         {isSignUp && (
-          <input
-            type="text"
-            placeholder="Display name"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            required
-            className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
+          <>
+            <input
+              type="text"
+              placeholder="Display name"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              required
+              className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            <input
+              type="text"
+              placeholder="Invite code"
+              value={inviteCode}
+              onChange={(e) => setInviteCode(e.target.value)}
+              required
+              autoComplete="off"
+              className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </>
         )}
 
         <input
@@ -101,7 +112,7 @@ export default function LoginPage() {
           {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
           <button
             type="button"
-            onClick={() => { setIsSignUp(!isSignUp); setError('') }}
+            onClick={() => { setIsSignUp(!isSignUp); setError(''); setInviteCode('') }}
             className="text-indigo-400 hover:text-indigo-300 underline"
           >
             {isSignUp ? 'Sign in' : 'Sign up'}
