@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
-import { DAY_LABELS, WORKOUT_TYPES, MESOCYCLE } from '@/lib/constants'
+import { DAY_LABELS, WORKOUT_TYPES } from '@/lib/constants'
 import { generatePlan, allocatePhases, isRecoveryWeek, nextMonday, weeksBetween } from '@/lib/plan-generator'
 import type { GoalInput, TemplateSlot, PlannedWorkoutRow } from '@/lib/plan-generator'
 import type { Discipline, ExperienceLevel, RaceGoal, TrainingPhase } from '@/lib/database.types'
@@ -146,7 +146,7 @@ export default function TrainingCalendarPage() {
   useEffect(() => {
     if (!planMeta) return
     const defaults = new Set<number>()
-    const { phases, totalWeeks } = planMeta
+    const { phases } = planMeta
     let weekNum = 0
     for (const [phase, count] of [['base', phases.base], ['build', phases.build], ['peak', phases.peak], ['taper', phases.taper]] as const) {
       for (let i = 0; i < count; i++) {

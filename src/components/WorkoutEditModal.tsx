@@ -1,17 +1,11 @@
 import { useState } from 'react'
 import { WORKOUT_TYPES } from '@/lib/constants'
 import type { PlannedWorkoutRow } from '@/lib/plan-generator'
-import type { Discipline } from '@/lib/database.types'
 
 interface Props {
   workout: PlannedWorkoutRow
   onSave: (updated: PlannedWorkoutRow) => void
   onClose: () => void
-}
-
-function workoutLabel(discipline: Discipline, workoutType: string): string {
-  const catalog = WORKOUT_TYPES[discipline] as readonly { value: string; label: string }[]
-  return catalog.find(t => t.value === workoutType)?.label ?? workoutType
 }
 
 const ZONE_LABELS = ['', 'Easy / Aerobic', 'Moderate / Tempo', 'Hard / Threshold+']

@@ -14,7 +14,6 @@ import {
   TAPER_SCHEDULE,
   DISCIPLINE_SPLIT,
   WEEKLY_HOURS,
-  INTENSITY_DISTRIBUTION,
   WORKOUT_TYPES,
   STRENGTH_SESSIONS,
 } from './constants'
@@ -301,7 +300,6 @@ function describeWorkout(
   workoutType: string,
   durationMin: number,
   zone: number,
-  phase: TrainingPhase,
   isRecovery: boolean,
 ): string {
   if (isRecovery) {
@@ -566,7 +564,7 @@ export function generatePlan(
         }
 
         const description = describeWorkout(
-          slot.discipline, slot.workoutType, durationMin, zone, phase, recovery
+          slot.discipline, slot.workoutType, durationMin, zone, recovery
         )
 
         workouts.push({

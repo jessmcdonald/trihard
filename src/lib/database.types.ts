@@ -20,7 +20,7 @@ export type TerrainProfile = 'flat' | 'rolling' | 'hilly'
 
 export type WorkoutType = SwimWorkout | BikeWorkout | RunWorkout | StrengthWorkout | BrickWorkout
 
-export interface Profile {
+export type Profile = {
   id: string
   display_name: string
   experience_level: ExperienceLevel
@@ -29,7 +29,7 @@ export interface Profile {
   updated_at: string
 }
 
-export interface RaceGoal {
+export type RaceGoal = {
   id: string
   user_id: string
   name: string
@@ -52,7 +52,7 @@ export interface RaceGoal {
   updated_at: string
 }
 
-export interface WeeklyTemplate {
+export type WeeklyTemplate = {
   id: string
   user_id: string
   race_goal_id: string
@@ -63,7 +63,7 @@ export interface WeeklyTemplate {
   created_at: string
 }
 
-export interface TrainingPlan {
+export type TrainingPlan = {
   id: string
   user_id: string
   race_goal_id: string
@@ -80,7 +80,7 @@ export interface TrainingPlan {
   updated_at: string
 }
 
-export interface PlannedWorkout {
+export type PlannedWorkout = {
   id: string
   training_plan_id: string
   user_id: string
@@ -98,7 +98,7 @@ export interface PlannedWorkout {
   created_at: string
 }
 
-export interface CompletedWorkout {
+export type CompletedWorkout = {
   id: string
   planned_workout_id: string | null
   user_id: string
@@ -115,18 +115,22 @@ export interface CompletedWorkout {
 }
 
 // Supabase Database type (placeholder until auto-generated)
-export interface Database {
+export type Database = {
   public: {
     Tables: {
-      profiles: { Row: Profile; Insert: Partial<Profile> & { id: string }; Update: Partial<Profile> }
-      race_goals: { Row: RaceGoal; Insert: Omit<RaceGoal, 'id' | 'created_at' | 'updated_at'>; Update: Partial<RaceGoal> }
-      weekly_templates: { Row: WeeklyTemplate; Insert: Omit<WeeklyTemplate, 'id' | 'created_at'>; Update: Partial<WeeklyTemplate> }
-      training_plans: { Row: TrainingPlan; Insert: Omit<TrainingPlan, 'id' | 'created_at' | 'updated_at'>; Update: Partial<TrainingPlan> }
-      planned_workouts: { Row: PlannedWorkout; Insert: Omit<PlannedWorkout, 'id' | 'created_at'>; Update: Partial<PlannedWorkout> }
-      completed_workouts: { Row: CompletedWorkout; Insert: Omit<CompletedWorkout, 'id' | 'created_at'>; Update: Partial<CompletedWorkout> }
+      profiles: { Row: Profile; Insert: Partial<Profile> & { id: string }; Update: Partial<Profile>; Relationships: [] }
+      race_goals: { Row: RaceGoal; Insert: Omit<RaceGoal, 'id' | 'created_at' | 'updated_at'>; Update: Partial<RaceGoal>; Relationships: [] }
+      weekly_templates: { Row: WeeklyTemplate; Insert: Omit<WeeklyTemplate, 'id' | 'created_at'>; Update: Partial<WeeklyTemplate>; Relationships: [] }
+      training_plans: { Row: TrainingPlan; Insert: Omit<TrainingPlan, 'id' | 'created_at' | 'updated_at'>; Update: Partial<TrainingPlan>; Relationships: [] }
+      planned_workouts: { Row: PlannedWorkout; Insert: Omit<PlannedWorkout, 'id' | 'created_at'>; Update: Partial<PlannedWorkout>; Relationships: [] }
+      completed_workouts: { Row: CompletedWorkout; Insert: Omit<CompletedWorkout, 'id' | 'created_at'>; Update: Partial<CompletedWorkout>; Relationships: [] }
     }
-    Views: Record<string, never>
-    Functions: Record<string, never>
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      [_ in never]: never
+    }
     Enums: {
       experience_level: ExperienceLevel
       race_distance: RaceDistance
