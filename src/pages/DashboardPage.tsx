@@ -9,6 +9,7 @@ export default function DashboardPage() {
   const navigate = useNavigate()
   const [activeGoal, setActiveGoal] = useState<RaceGoal | null>(null)
   const [hasTemplate, setHasTemplate] = useState(false)
+  const [hasSavedPlan, setHasSavedPlan] = useState(false)
   const [loadingGoal, setLoadingGoal] = useState(true)
 
   useEffect(() => {
@@ -34,6 +35,18 @@ export default function DashboardPage() {
           .eq('user_id', user!.id)
 
         setHasTemplate((count ?? 0) > 0)
+
+        // Same lookup as the calendar — a head-count query can return null
+        // even when a saved plan row exists.
+        const { data: plans } = await supabase
+          .from('training_plans')
+          .select('id')
+          .eq('race_goal_id', goal.id)
+          .eq('user_id', user!.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+
+        setHasSavedPlan((plans?.length ?? 0) > 0)
       }
 
       setLoadingGoal(false)
@@ -133,13 +146,24 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Track Workouts — coming soon */}
-          <div className="rounded-xl bg-gray-900 border border-gray-800 p-6 opacity-50">
-            <h3 className="text-lg font-semibold mb-1">✅ Track Workouts</h3>
-            <p className="text-sm text-gray-400">
-              Log actuals and see your execution score
-            </p>
-          </div>
+          {hasGoal && hasSavedPlan ? (
+            <button
+              onClick={() => navigate(`/track?goal=${activeGoal.id}`)}
+              className="rounded-xl bg-gray-900 border border-gray-800 p-6 text-left hover:border-indigo-500 transition-colors"
+            >
+              <h3 className="text-lg font-semibold mb-1">✅ Track Workouts</h3>
+              <p className="text-sm text-gray-400">
+                Log actuals and see your execution score
+              </p>
+            </button>
+          ) : (
+            <div className="rounded-xl bg-gray-900 border border-gray-800 p-6 opacity-50">
+              <h3 className="text-lg font-semibold mb-1">✅ Track Workouts</h3>
+              <p className="text-sm text-gray-400">
+                {!hasGoal ? 'Set a race goal first' : !hasTemplate ? 'Build a weekly template first' : 'Save a training plan first'}
+              </p>
+            </div>
+          )}
         </div>
       </main>
     </div>

@@ -8,6 +8,7 @@ export type RaceDistance = 'sprint' | 'olympic' | 'half_iron' | 'ironman' | 'cus
 export type Discipline = 'swim' | 'bike' | 'run' | 'strength'
 export type TrainingPhase = 'base' | 'build' | 'peak' | 'taper'
 export type PlanStatus = 'active' | 'completed' | 'archived'
+export type PlannedWorkoutStatus = 'planned' | 'skipped'
 
 export type SwimWorkout = 'technique' | 'endurance' | 'threshold' | 'speed' | 'race_sim' | 'recovery' | 'open_water'
 export type BikeWorkout = 'endurance' | 'sweet_spot' | 'threshold' | 'vo2max' | 'cadence_force' | 'recovery' | 'race_sim'
@@ -95,6 +96,9 @@ export type PlannedWorkout = {
   description: string | null
   is_recovery_week: boolean
   sort_order: number
+  optional: boolean
+  status: PlannedWorkoutStatus
+  skipped_at: string | null
   created_at: string
 }
 
@@ -130,8 +134,8 @@ export type Database = {
       race_goals: { Row: RaceGoal; Insert: Omit<RaceGoal, 'id' | 'created_at' | 'updated_at'>; Update: Partial<RaceGoal>; Relationships: [] }
       weekly_templates: { Row: WeeklyTemplate; Insert: Omit<WeeklyTemplate, 'id' | 'created_at'>; Update: Partial<WeeklyTemplate>; Relationships: [] }
       training_plans: { Row: TrainingPlan; Insert: Omit<TrainingPlan, 'id' | 'created_at' | 'updated_at'>; Update: Partial<TrainingPlan>; Relationships: [] }
-      planned_workouts: { Row: PlannedWorkout; Insert: Omit<PlannedWorkout, 'id' | 'created_at'>; Update: Partial<PlannedWorkout>; Relationships: [] }
-      completed_workouts: { Row: CompletedWorkout; Insert: Omit<CompletedWorkout, 'id' | 'created_at'>; Update: Partial<CompletedWorkout>; Relationships: [] }
+      planned_workouts: { Row: PlannedWorkout; Insert: Omit<PlannedWorkout, 'id' | 'created_at' | 'optional' | 'status' | 'skipped_at'> & { optional?: boolean; status?: PlannedWorkoutStatus; skipped_at?: string | null }; Update: Partial<PlannedWorkout>; Relationships: [] }
+      completed_workouts: { Row: CompletedWorkout; Insert: Omit<CompletedWorkout, 'id' | 'created_at' | 'avg_heart_rate' | 'strava_activity_id'> & { avg_heart_rate?: number | null; strava_activity_id?: number | null }; Update: Partial<CompletedWorkout>; Relationships: [] }
       invite_codes: { Row: InviteCode; Insert: Omit<InviteCode, 'id' | 'created_at' | 'use_count'> & { use_count?: number }; Update: Partial<InviteCode>; Relationships: [] }
     }
     Views: {

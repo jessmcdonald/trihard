@@ -137,6 +137,7 @@ export interface PlanSummary {
 }
 
 export interface PlannedWorkoutRow {
+  id?: string
   date: string
   weekNumber: number
   phase: TrainingPhase
@@ -148,6 +149,8 @@ export interface PlannedWorkoutRow {
   description: string
   isRecoveryWeek: boolean
   sortOrder: number
+  optional?: boolean
+  status?: 'planned' | 'skipped'
 }
 
 // ── Helpers ──
@@ -167,7 +170,10 @@ function addDays(date: Date, n: number): Date {
 }
 
 function isoDate(d: Date): string {
-  return d.toISOString().split('T')[0]
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 function lerp(from: number, to: number, t: number): number {

@@ -2,12 +2,17 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
-import { DAY_LABELS, WORKOUT_TYPES } from '@/lib/constants'
+import { DAY_LABELS, workoutLabel } from '@/lib/constants'
 import { generatePlan, allocatePhases, isRecoveryWeek, nextMonday, weeksBetween } from '@/lib/plan-generator'
 import type { GoalInput, TemplateSlot, PlannedWorkoutRow } from '@/lib/plan-generator'
-import type { Discipline, ExperienceLevel, RaceGoal, TrainingPhase } from '@/lib/database.types'
+import type { CompletedWorkout, Discipline, ExperienceLevel, RaceGoal, TrainingPhase } from '@/lib/database.types'
 import WorkoutChip from '@/components/WorkoutChip'
+import type { ChipState } from '@/components/WorkoutChip'
 import WorkoutEditModal from '@/components/WorkoutEditModal'
+import LogWorkoutModal from '@/components/LogWorkoutModal'
+import type { LogWorkoutValues } from '@/components/LogWorkoutModal'
+import { completionByPlannedId, extrasOnDate, formatDoneOn, mapPlannedFromDb, parseISODate, todayISO } from '@/lib/tracking'
+import type { TrackedPlanned } from '@/lib/tracking'
 import WeeklyVolumeChart from '@/components/WeeklyVolumeChart'
 import FitnessConfigStep, { buildFitnessForm, parseFitnessForm } from '@/components/FitnessConfigStep'
 import type { FitnessForm } from '@/components/FitnessConfigStep'
@@ -21,11 +26,6 @@ const PHASE_COLORS: Record<TrainingPhase, string> = {
 
 const PHASE_LABELS: Record<TrainingPhase, string> = {
   base: 'Base', build: 'Build', peak: 'Peak', taper: 'Taper',
-}
-
-function workoutLabel(discipline: Discipline, workoutType: string): string {
-  const catalog = WORKOUT_TYPES[discipline] as readonly { value: string; label: string }[]
-  return catalog.find(t => t.value === workoutType)?.label ?? workoutType
 }
 
 export default function TrainingCalendarPage() {
@@ -42,6 +42,10 @@ export default function TrainingCalendarPage() {
   const [error, setError] = useState('')
   const [selectedWeek, setSelectedWeek] = useState(0)
   const [editingWorkout, setEditingWorkout] = useState<{ weekIdx: number; workoutIdx: number } | null>(null)
+  const [savedPlanId, setSavedPlanId] = useState<string | null>(null)
+  const [completions, setCompletions] = useState<CompletedWorkout[]>([])
+  const [logging, setLogging] = useState<TrackedPlanned | { extraDate: string; existing?: CompletedWorkout } | null>(null)
+  const [logSaving, setLogSaving] = useState(false)
 
   // Configuration step state
   const [configStep, setConfigStep] = useState<'configure' | 'fitness' | 'calendar'>('configure')
@@ -108,19 +112,13 @@ export default function TrainingCalendarPage() {
             taperWeeks: savedPlan.taper_weeks,
             weeklyHoursTarget: Number(savedPlan.weekly_hours_target),
           })
-          setAllWorkouts(savedWorkouts.map(w => ({
-            date: w.date,
-            weekNumber: w.week_number,
-            phase: w.phase as TrainingPhase,
-            discipline: w.discipline as Discipline,
-            workoutType: w.workout_type,
-            plannedDurationMin: w.planned_duration_min ?? 0,
-            plannedDistanceM: w.planned_distance_m,
-            intensityZone: w.intensity_zone ?? 1,
-            description: w.description ?? '',
-            isRecoveryWeek: w.is_recovery_week,
-            sortOrder: w.sort_order,
-          })))
+          setAllWorkouts(savedWorkouts.map(mapPlannedFromDb))
+          setSavedPlanId(savedPlan.id)
+          const { data: logs } = await supabase
+            .from('completed_workouts')
+            .select('*')
+            .eq('user_id', user!.id)
+          setCompletions((logs ?? []) as CompletedWorkout[])
           setSaved(true)
           setConfigStep('calendar')
         }
@@ -276,6 +274,16 @@ export default function TrainingCalendarPage() {
         if (wErr) throw wErr
       }
 
+      const { data: savedWorkouts, error: reloadErr } = await supabase
+        .from('planned_workouts')
+        .select('*')
+        .eq('training_plan_id', planRow.id)
+        .eq('user_id', user.id)
+        .order('date')
+        .order('sort_order')
+      if (reloadErr) throw reloadErr
+      setAllWorkouts((savedWorkouts ?? []).map(mapPlannedFromDb))
+      setSavedPlanId(planRow.id)
       setSaved(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save plan')
@@ -605,6 +613,7 @@ export default function TrainingCalendarPage() {
 
   async function handleRegenerate() {
     if (!user || !raceGoalId) return
+    if (!window.confirm('Regenerating unlinks logged workouts from this plan. Continue?')) return
 
     // Delete existing plan + workouts for this goal
     const { data: plans } = await supabase
@@ -623,7 +632,121 @@ export default function TrainingCalendarPage() {
     setPlanSummary(null)
     setAllWorkouts([])
     setSaved(false)
+    setSavedPlanId(null)
+    setCompletions([])
     setConfigStep('configure')
+  }
+
+  const doneById = completionByPlannedId(completions)
+  const loggingPlanned = logging && !('extraDate' in logging) ? logging : undefined
+  const loggingExisting = loggingPlanned
+    ? doneById.get(loggingPlanned.id) ?? null
+    : logging && 'extraDate' in logging
+      ? logging.existing ?? null
+      : null
+
+  async function refreshLogs() {
+    if (!user) return
+    const { data: logs } = await supabase.from('completed_workouts').select('*').eq('user_id', user.id)
+    setCompletions((logs ?? []) as CompletedWorkout[])
+    if (savedPlanId) {
+      const { data: rows } = await supabase
+        .from('planned_workouts')
+        .select('*')
+        .eq('training_plan_id', savedPlanId)
+        .eq('user_id', user.id)
+        .order('date')
+        .order('sort_order')
+      if (rows) setAllWorkouts(rows.map(mapPlannedFromDb))
+    }
+  }
+
+  async function saveLog(values: LogWorkoutValues) {
+    if (!user) return
+    setLogSaving(true)
+    setError('')
+    try {
+      if (loggingExisting) {
+        const { error: err } = await supabase
+          .from('completed_workouts')
+          .update({
+            date: values.date,
+            discipline: values.discipline,
+            workout_type: values.workoutType,
+            actual_duration_min: values.durationMin,
+            actual_distance_m: values.distanceM,
+            perceived_effort: values.perceivedEffort,
+            notes: values.notes || null,
+          })
+          .eq('id', loggingExisting.id)
+        if (err) throw err
+      } else {
+        const { error: err } = await supabase.from('completed_workouts').insert({
+          user_id: user.id,
+          planned_workout_id: values.plannedWorkoutId,
+          date: values.date,
+          discipline: values.discipline,
+          workout_type: values.workoutType,
+          actual_duration_min: values.durationMin,
+          actual_distance_m: values.distanceM,
+          perceived_effort: values.perceivedEffort,
+          notes: values.notes || null,
+        })
+        if (err) throw err
+      }
+      setLogging(null)
+      await refreshLogs()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save log')
+    } finally {
+      setLogSaving(false)
+    }
+  }
+
+  async function setSkipped(workout: TrackedPlanned, skipped: boolean) {
+    const { error: err } = await supabase
+      .from('planned_workouts')
+      .update({
+        status: skipped ? 'skipped' : 'planned',
+        skipped_at: skipped ? new Date().toISOString() : null,
+      })
+      .eq('id', workout.id)
+    if (err) { setError(err.message); return }
+    setLogging(null)
+    await refreshLogs()
+  }
+
+  async function toggleOptional(workout: TrackedPlanned) {
+    const { error: err } = await supabase
+      .from('planned_workouts')
+      .update({ optional: !workout.optional })
+      .eq('id', workout.id)
+    if (err) { setError(err.message); return }
+    setLogging(null)
+    await refreshLogs()
+  }
+
+  async function deleteLog(completion: CompletedWorkout) {
+    const { error: err } = await supabase.from('completed_workouts').delete().eq('id', completion.id)
+    if (err) { setError(err.message); return }
+    setLogging(null)
+    await refreshLogs()
+  }
+
+  function asTracked(w: PlannedWorkoutRow): TrackedPlanned | null {
+    if (!w.id) return null
+    return {
+      ...w,
+      id: w.id,
+      optional: w.optional ?? false,
+      status: w.status ?? 'planned',
+    }
+  }
+
+  function chipFor(w: PlannedWorkoutRow): ChipState {
+    if (w.id && doneById.has(w.id)) return 'done'
+    if (w.status === 'skipped') return 'skipped'
+    return 'pending'
   }
 
   return (
@@ -646,6 +769,14 @@ export default function TrainingCalendarPage() {
         ) : (
           <div className="flex items-center gap-3">
             <span className="text-green-400 text-sm font-medium">✓ Saved</span>
+            {raceGoalId && (
+              <button
+                onClick={() => navigate(`/track?goal=${raceGoalId}`)}
+                className="text-sm text-indigo-400 hover:text-indigo-300"
+              >
+                Track
+              </button>
+            )}
             <button
               onClick={handleRegenerate}
               className="rounded-lg bg-gray-800 hover:bg-gray-700 px-3 py-2 text-sm text-gray-300 transition-colors"
@@ -672,6 +803,7 @@ export default function TrainingCalendarPage() {
         <div className="mb-6">
           <WeeklyVolumeChart
             weeklyWorkouts={weeklyWorkouts}
+            completions={completions}
             selectedWeek={selectedWeek}
             onSelectWeek={setSelectedWeek}
           />
@@ -748,8 +880,10 @@ export default function TrainingCalendarPage() {
           {DAY_LABELS.map((dayLabel, dayIdx) => {
             const dayWorkouts = workoutsByDay[dayIdx]
             const dayDate = currentWeek.length > 0
-              ? new Date(new Date(currentWeek[0].date).getTime() + dayIdx * 86400000)
+              ? new Date(parseISODate(currentWeek[0].date).getTime() + dayIdx * 86400000)
               : null
+            const dayIso = dayDate ? todayISO(dayDate) : null
+            const dayExtras = dayIso ? extrasOnDate(completions, dayIso) : []
             const dayMinutes = dayWorkouts.reduce((s, w) => s + w.plannedDurationMin, 0)
 
             return (
@@ -770,35 +904,71 @@ export default function TrainingCalendarPage() {
                     <div className="text-xs text-gray-700 text-center py-4">Rest</div>
                   )}
                   {dayWorkouts.map((w, i) => {
-                    // Find the flat index into currentWeek for this workout
                     const flatIdx = currentWeek.indexOf(w)
+                    const tracked = asTracked(w)
+                    const log = w.id ? doneById.get(w.id) : undefined
+                    const shifted = log ? formatDoneOn(w.date, log.date) : null
                     return (
                       <button
-                        key={i}
+                        key={w.id ?? i}
                         type="button"
-                        onClick={() => setEditingWorkout({ weekIdx: selectedWeek, workoutIdx: flatIdx })}
+                        onClick={() => {
+                          if (saved && tracked) setLogging(tracked)
+                          else setEditingWorkout({ weekIdx: selectedWeek, workoutIdx: flatIdx })
+                        }}
                         className="w-full text-left space-y-0.5 rounded-lg p-1 -m-1 hover:bg-gray-800/50 transition-colors cursor-pointer"
                       >
                         <WorkoutChip
                           discipline={w.discipline}
                           workoutLabel={workoutLabel(w.discipline, w.workoutType)}
+                          state={chipFor(w)}
+                          optional={w.optional}
                         />
                         <div className="text-[10px] text-gray-500 px-1 leading-tight">
-                          {w.plannedDurationMin}min
-                          {w.plannedDistanceM != null && (
+                          {log ? `${log.actual_duration_min ?? w.plannedDurationMin}min` : `${w.plannedDurationMin}min`}
+                          {w.plannedDistanceM != null && !log && (
                             <> · {w.plannedDistanceM >= 1000
                               ? `${(w.plannedDistanceM / 1000).toFixed(1)}km`
                               : `${w.plannedDistanceM}m`
                             }</>
                           )}
-                          {' · Z'}{w.intensityZone}
+                          {shifted && <> · done {shifted}</>}
+                          {!log && <>{' · Z'}{w.intensityZone}</>}
                         </div>
-                        <div className="text-[10px] text-gray-600 px-1 leading-tight italic">
-                          {w.description}
-                        </div>
+                        {!saved && (
+                          <div className="text-[10px] text-gray-600 px-1 leading-tight italic">
+                            {w.description}
+                          </div>
+                        )}
                       </button>
                     )
                   })}
+                  {dayExtras.map(c => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setLogging({ extraDate: c.date, existing: c })}
+                      className="w-full text-left space-y-0.5 px-1"
+                    >
+                      <WorkoutChip
+                        discipline={c.discipline}
+                        workoutLabel={workoutLabel(c.discipline, c.workout_type)}
+                        state="extra"
+                      />
+                      <div className="text-[10px] text-gray-500 leading-tight">
+                        Extra · {c.actual_duration_min ?? '—'}min
+                      </div>
+                    </button>
+                  ))}
+                  {saved && dayIso && (
+                    <button
+                      type="button"
+                      onClick={() => setLogging({ extraDate: dayIso })}
+                      className="w-full text-[10px] text-gray-600 hover:text-indigo-400 py-1"
+                    >
+                      + extra
+                    </button>
+                  )}
                 </div>
 
                 {dayWorkouts.length > 0 && (
@@ -811,11 +981,25 @@ export default function TrainingCalendarPage() {
           })}
         </div>
         {/* Edit modal */}
-        {editingData && (
+        {editingData && !saved && (
           <WorkoutEditModal
             workout={editingData}
             onSave={handleWorkoutUpdate}
             onClose={() => setEditingWorkout(null)}
+          />
+        )}
+        {logging && (
+          <LogWorkoutModal
+            planned={loggingPlanned}
+            existing={loggingExisting}
+            extraDate={'extraDate' in logging ? logging.extraDate : undefined}
+            saving={logSaving}
+            onSubmit={saveLog}
+            onClose={() => setLogging(null)}
+            onSkip={loggingPlanned && !loggingExisting ? () => setSkipped(loggingPlanned, true) : undefined}
+            onUnskip={loggingPlanned?.status === 'skipped' ? () => setSkipped(loggingPlanned, false) : undefined}
+            onToggleOptional={loggingPlanned ? () => toggleOptional(loggingPlanned) : undefined}
+            onDelete={loggingExisting ? () => deleteLog(loggingExisting) : undefined}
           />
         )}
       </main>

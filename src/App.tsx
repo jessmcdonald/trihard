@@ -4,6 +4,7 @@ import DashboardPage from '@/pages/DashboardPage'
 import RaceGoalPage from '@/pages/RaceGoalPage'
 import WeeklyTemplatePage from '@/pages/WeeklyTemplatePage'
 import TrainingCalendarPage from '@/pages/TrainingCalendarPage'
+import TrackWorkoutsPage from '@/pages/TrackWorkoutsPage'
 import ProtectedRoute from '@/components/ProtectedRoute'
 
 export default function App() {
@@ -39,6 +40,14 @@ export default function App() {
         element={
           <ProtectedRoute>
             <TrainingCalendarPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/track"
+        element={
+          <ProtectedRoute>
+            <TrackWorkoutsPage />
           </ProtectedRoute>
         }
       />

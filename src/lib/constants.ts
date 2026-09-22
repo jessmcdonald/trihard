@@ -125,3 +125,8 @@ export const WORKOUT_TYPES = {
 // Day of week labels (0=Mon, 6=Sun)
 export const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
 export const DAY_LABELS_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as const
+
+export function workoutLabel(discipline: Discipline, workoutType: string): string {
+  const catalog = WORKOUT_TYPES[discipline] as readonly { value: string; label: string }[]
+  return catalog.find(t => t.value === workoutType)?.label ?? workoutType
+}
