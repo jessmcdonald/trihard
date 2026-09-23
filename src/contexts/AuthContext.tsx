@@ -75,11 +75,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function signUp(email: string, password: string, displayName: string, inviteCode: string) {
     const trimmedCode = inviteCode.trim()
+    if (!trimmedCode) throw new Error('Invite code is required')
+
     const { data: valid, error: checkError } = await supabase.rpc('is_valid_invite_code', {
       invite: trimmedCode,
     })
-    if (checkError) throw checkError
-    if (!valid) throw new Error('Invalid invite code')
+    // RPC missing/unexposed should not block signup — the DB trigger is the real gate.
+    if (!checkError && valid !== true) throw new Error('Invalid invite code')
 
     const { error } = await supabase.auth.signUp({
       email,
